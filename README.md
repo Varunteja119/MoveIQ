@@ -19,6 +19,18 @@ MoveIQ helps users explore urban mobility patterns, compare demand across locati
 - **Backend API:** Access analytics, forecasting, historical insights, and AI copilot functionality through FastAPI endpoints.
 - **Session Management:** Use Redis-backed infrastructure for conversational session management.
 
+## Screenshots
+
+### Main Dashboard
+![MoveIQ Dashboard](docs/screenshots/dashboard.png)
+
+### Demand Forecasting
+![Demand Forecasting](docs/screenshots/forecast.png)
+
+### AI Analytics Copilot
+![MoveIQ AI Copilot](docs/screenshots/ai-copilot.png)
+
+
 ## Application Architecture
 
 ```text
