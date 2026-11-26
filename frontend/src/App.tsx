@@ -162,7 +162,7 @@ function App() {
                 <Activity size={16} />
               </div>
               <div className="metric-value">3.47<span>M</span></div>
-              <div className="metric-foot">NYC yellow taxi Ã¯Â¿Â½ January</div>
+              <div className="metric-foot">NYC yellow taxi  -  January</div>
             </article>
             <article className="metric-card">
               <div className="metric-top">
@@ -186,7 +186,7 @@ function App() {
                 <TrendingUp size={16} />
               </div>
               <div className="metric-value metric-name">Midtown Center</div>
-              <div className="metric-foot">169,977 trips Ã¯Â¿Â½ Manhattan</div>
+              <div className="metric-foot">169,977 trips  -  Manhattan</div>
             </article>
           </section>
 
@@ -233,13 +233,13 @@ function App() {
               <div className="insight-main">
                 <div>
                   <span className="insight-zone">Midtown Center</span>
-                  <span className="insight-location">Manhattan Ã¯Â¿Â½ Zone 161</span>
+                  <span className="insight-location">Manhattan  -  Zone 161</span>
                 </div>
                 <strong>169,977</strong>
               </div>
               <div className="insight-foot">
                 <span className="signal-bar"><i /></span>
-                <span>January 2025 Ã¯Â¿Â½ Historical</span>
+                <span>January 2025  -  Historical</span>
               </div>
             </article>
 
@@ -262,7 +262,7 @@ function App() {
           </section>
 
           <footer className="workspace-footer">
-            <span><Clock3 size={13} /> DATA COVERAGE: JAN 01 Ã¯Â¿Â½ JAN 31, 2025</span>
+            <span><Clock3 size={13} /> DATA COVERAGE: JAN 01  -  JAN 31, 2025</span>
             <span>NYC TLC YELLOW TAXI DATASET</span>
           </footer>
           </>}
