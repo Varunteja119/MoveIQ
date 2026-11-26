@@ -4,13 +4,15 @@ import type { EChartsOption } from 'echarts'
 import { Activity, Clock3, DollarSign, MapPin, TrendingUp } from 'lucide-react'
 import './PatternsPage.css'
 
-type ApiResponse<T> = {
-  data: T[]
-  coverage?: {
+type HistoricalPatternsResponse = {
+  coverage: {
     start_date: string
     end_date: string
     total_trips: number
   }
+  demand: { data: DemandRow[] }
+  revenue: { data: RevenueRow[] }
+  metrics: { data: TripMetrics[] }
 }
 
 type DemandRow = {
@@ -30,9 +32,7 @@ type TripMetrics = {
   average_fare: number
   average_distance_miles: number
   average_duration_minutes: number
-  median_fare: number
-  median_distance_miles: number
-}
+ }
 
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', {
@@ -47,10 +47,21 @@ const compact = (value: number) =>
     maximumFractionDigits: 1,
   }).format(value)
 
+function formatCoverageDate(value: string) {
+  const date = value.slice(0, 10)
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T00:00:00Z`))
+}
+
 function PatternsPage() {
   const [demand, setDemand] = useState<DemandRow[]>([])
   const [revenue, setRevenue] = useState<RevenueRow[]>([])
   const [metrics, setMetrics] = useState<TripMetrics | null>(null)
+  const [coverage, setCoverage] = useState<HistoricalPatternsResponse["coverage"] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -62,28 +73,21 @@ function PatternsPage() {
         setLoading(true)
         setError('')
 
-        const [demandResponse, revenueResponse, metricsResponse] =
-          await Promise.all([
-            fetch('/api/v1/analytics/demand'),
-            fetch('/api/v1/analytics/revenue'),
-            fetch('/api/v1/analytics/trip-metrics'),
-          ])
+        const response = await fetch('/api/v1/historical/patterns')
 
-        if (!demandResponse.ok || !revenueResponse.ok || !metricsResponse.ok) {
-          throw new Error('One or more analytics endpoints returned an error.')
+        if (!response.ok) {
+          throw new Error('Historical analytics endpoint returned an error.')
         }
 
-        const [demandData, revenueData, metricsData] = await Promise.all([
-          demandResponse.json() as Promise<ApiResponse<DemandRow>>,
-          revenueResponse.json() as Promise<ApiResponse<RevenueRow>>,
-          metricsResponse.json() as Promise<ApiResponse<TripMetrics>>,
-        ])
+        const patternsData =
+          await response.json() as HistoricalPatternsResponse
 
         if (!active) return
 
-        setDemand(demandData.data)
-        setRevenue(revenueData.data)
-        setMetrics(metricsData.data[0] ?? null)
+        setDemand(patternsData.demand.data)
+        setRevenue(patternsData.revenue.data)
+        setMetrics(patternsData.metrics.data[0] ?? null)
+        setCoverage(patternsData.coverage)
       } catch (err) {
         if (active) {
           setError(err instanceof Error ? err.message : 'Unable to load analytics.')
@@ -220,7 +224,12 @@ function PatternsPage() {
           <h1>Understand the <span>rhythm of the city.</span></h1>
           <p>Explore hourly demand, borough-level fare revenue and trip characteristics.</p>
         </div>
-        <div className="patterns-period"><Clock3 size={15} /> JANUARY 2025</div>
+        <div className="patterns-period">
+          <Clock3 size={15} />
+          {coverage
+            ? `${formatCoverageDate(coverage.start_date)} ? ${formatCoverageDate(coverage.end_date)}`
+            : 'HISTORICAL DATA'}
+        </div>
       </div>
 
       {error && <div className="patterns-error">{error}</div>}
@@ -268,7 +277,7 @@ function PatternsPage() {
                 <p>
                   Demand peaks at <strong>{String(peakHour.group_value).padStart(2, '0')}:00</strong>,
                   with <strong>{peakHour.trip_count.toLocaleString('en-US')}</strong> trips.
-                  This is the busiest hour in the January 2025 dataset.
+                  This is the busiest hour across the historical dataset.
                 </p>
               </div>
             )}
@@ -302,7 +311,11 @@ function PatternsPage() {
 
       <footer className="patterns-footer">
         <span>NYC TLC YELLOW TAXI DATASET</span>
-        <span>HISTORICAL COVERAGE: JAN 01 - JAN 31, 2025</span>
+        <span>
+          HISTORICAL COVERAGE: {coverage
+            ? `${formatCoverageDate(coverage.start_date)} ? ${formatCoverageDate(coverage.end_date)}`
+            : 'Loading'}
+        </span>
       </footer>
     </div>
   )

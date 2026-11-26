@@ -269,6 +269,63 @@ class HistoricalAnalytics:
 
         return result.to_dict(orient="records")
 
+
+    def get_patterns_summary(self):
+        overview = self.get_overview()
+
+        demand = self.connection.execute("""
+            SELECT
+                pickup_hour_of_day AS group_value,
+                SUM(total_trips) AS trip_count
+            FROM historical_trips
+            WHERE location_role = 'pickup'
+            GROUP BY pickup_hour_of_day
+            ORDER BY pickup_hour_of_day
+        """).fetchdf().to_dict(orient="records")
+
+        revenue = self.connection.execute("""
+            SELECT
+                borough AS group_value,
+                SUM(valid_fare_trips) AS valid_fare_trips,
+                SUM(fare_sum) AS fare_revenue,
+                SUM(fare_sum) / NULLIF(SUM(valid_fare_trips), 0)
+                    AS average_fare
+            FROM historical_trips
+            WHERE location_role = 'pickup'
+            GROUP BY borough
+            ORDER BY fare_revenue DESC
+        """).fetchdf().to_dict(orient="records")
+
+        metrics = self.connection.execute("""
+            SELECT
+                SUM(valid_fare_trips) AS valid_fare_trips,
+                SUM(fare_sum) / NULLIF(SUM(valid_fare_trips), 0)
+                    AS average_fare,
+                SUM(distance_sum) / NULLIF(SUM(valid_distance_trips), 0)
+                    AS average_distance_miles,
+                SUM(duration_seconds_sum)
+                    / NULLIF(SUM(valid_duration_trips), 0) / 60.0
+                    AS average_duration_minutes
+            FROM historical_trips
+            WHERE location_role = 'pickup'
+        """).fetchdf().to_dict(orient="records")
+
+        first_date = overview["first_date"]
+        last_date = overview["last_date"]
+
+        return {
+            "coverage": {
+                "start_date": first_date.isoformat()
+                    if hasattr(first_date, "isoformat") else str(first_date),
+                "end_date": last_date.isoformat()
+                    if hasattr(last_date, "isoformat") else str(last_date),
+                "total_trips": int(overview["total_trips"] or 0),
+            },
+            "demand": {"data": demand},
+            "revenue": {"data": revenue},
+            "metrics": {"data": metrics},
+        }
+
     def close(self):
         if self.connection:
             self.connection.close()

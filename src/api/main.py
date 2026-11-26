@@ -513,6 +513,13 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
             lambda service: service.get_overview()
         )
 
+
+    @app.get("/api/v1/historical/patterns", tags=["Historical Analytics"])
+    def historical_patterns():
+        return run_historical_service(
+            lambda service: service.get_patterns_summary()
+        )
+
     @app.get("/api/v1/historical/zones/{location_id}", tags=["Historical Analytics"])
     def historical_zone_profile(
         location_id: int,
