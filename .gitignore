@@ -29,3 +29,20 @@ models/*
 *.log
 *.tmp
 .DS_Store
+
+# Generated analytics and ML data
+data/analytics/
+data/ml/
+
+# Generated reports and model outputs
+reports/
+
+# Temporary review files
+concurrency_review.txt
+numeric_guardrails_to_upload.py
+
+# Local code backups
+*.bak
+*.backup
+*.backup[0-9]
+*.pre_context_backup
