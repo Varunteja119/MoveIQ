@@ -46,3 +46,7 @@ numeric_guardrails_to_upload.py
 *.backup
 *.backup[0-9]
 *.pre_context_backup
+
+# Local deployment artifacts
+deployment-data/
+moveiq-deployment-data.zip

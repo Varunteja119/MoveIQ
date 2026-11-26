@@ -6,9 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# XGBoost requires the OpenMP runtime library.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1 curl unzip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-runtime.txt .
@@ -16,16 +15,13 @@ RUN pip install --no-cache-dir -r requirements-runtime.txt
 
 COPY src/ ./src/
 
-COPY data/processed/yellow_tripdata_2025-01_cleaned.parquet ./data/processed/
 COPY data/reference/taxi_zone_lookup.csv ./data/reference/
 
-COPY data/analytics/historical/zone_hourly_2024_2026.parquet ./data/analytics/historical/
-
-COPY data/ml/processed/hourly_demand_features_2024_2026.parquet ./data/ml/processed/
-COPY data/ml/processed/zone_hourly_demand_features_2024_2026.parquet ./data/ml/processed/
-
-COPY models/moveiq_direct_demand_forecaster_2024_2026_candidate.joblib ./models/
-COPY models/moveiq_zone_direct_demand_forecaster_2024_2026_candidate.joblib ./models/
+RUN curl -fL \
+    "https://github.com/Varunteja119/MoveIQ/releases/download/v1.0.0/moveiq-deployment-data.zip" \
+    -o /tmp/moveiq-deployment-data.zip \
+    && unzip -q /tmp/moveiq-deployment-data.zip -d /app \
+    && rm /tmp/moveiq-deployment-data.zip
 
 EXPOSE 8000
 
