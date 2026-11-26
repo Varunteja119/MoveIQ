@@ -27,11 +27,11 @@ class HistoricalAnalytics:
         self.connection = duckdb.connect(database=":memory:")
 
         self.connection.execute("""
-            SET memory_limit = '1GB'
+            SET memory_limit = '256MB'
         """)
 
         self.connection.execute("""
-            SET threads = 2
+            SET threads = 1
         """)
 
         dataset_path = str(self.dataset_path).replace("'", "''")

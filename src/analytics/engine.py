@@ -46,6 +46,8 @@ class MoveIQAnalytics:
             )
 
         self.connection = duckdb.connect(database=":memory:")
+        self.connection.execute("SET memory_limit = '256MB'")
+        self.connection.execute("SET threads = 1")
 
         # Query Parquet directly without importing all records
         self.connection.from_parquet(
@@ -832,3 +834,4 @@ class MoveIQAnalytics:
 
     def close(self):
         self.connection.close()
+
