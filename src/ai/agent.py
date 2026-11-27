@@ -760,8 +760,77 @@ class MoveIQAgent:
                     ),
                 })
 
-            # For chart requests, the next round is reserved for the
-            # final explanation. Do not allow another chart/tool call.
+            # Return chart results directly. Do not make another Groq
+            # request after the chart tool has executed.
+            if chart_requested and chart_tool_executed:
+                charts = self._extract_charts(turn_tool_results)
+                answer = "The requested chart has been generated."
+
+                if charts:
+                    chart = charts[-1]
+                    rows = chart.get("data", [])
+                    x_key = chart.get("x_key", "hour")
+                    series = chart.get("series", [])
+
+                    metric_key = None
+                    metric_label = "trips"
+
+                    for item in series:
+                        candidate = item.get("dataKey") or item.get("data_key")
+                        if candidate:
+                            metric_key = candidate
+                            metric_label = item.get("label") or candidate
+                            break
+
+                    valid_rows = []
+                    if isinstance(rows, list) and metric_key:
+                        for row in rows:
+                            if not isinstance(row, dict):
+                                continue
+                            value = row.get(metric_key)
+                            if isinstance(value, (int, float)) and math.isfinite(value):
+                                valid_rows.append(row)
+
+                    if valid_rows:
+                        ranked = sorted(
+                            valid_rows,
+                            key=lambda row: row[metric_key],
+                            reverse=True,
+                        )
+                        peak = ranked[0]
+                        peak_hour = peak.get(x_key, "Unknown")
+
+                        if isinstance(peak_hour, (int, float)) and 0 <= peak_hour <= 23:
+                            peak_hour = f"{int(peak_hour):02d}:00"
+
+                        answer = (
+                            f"{chart.get('title', 'Hourly demand chart')} is ready. "
+                            f"The busiest hour was {peak_hour}, with "
+                            f"{peak[metric_key]:,.0f} {metric_label.lower()}."
+                        )
+
+                        if len(ranked) > 1:
+                            other_hours = []
+                            for row in ranked[1:3]:
+                                hour = row.get(x_key, "Unknown")
+                                if isinstance(hour, (int, float)) and 0 <= hour <= 23:
+                                    hour = f"{int(hour):02d}:00"
+                                other_hours.append(str(hour))
+
+                            if other_hours:
+                                answer += (
+                                    " Other high-demand hours were "
+                                    + " and ".join(other_hours)
+                                    + "."
+                                )
+
+                        answer += " The chart shows the hourly demand pattern for the selected period."
+
+                self.messages.append({
+                    "role": "assistant",
+                    "content": answer,
+                })
+                return self._build_response(answer, turn_tool_results)
 
         # Avoid silently leaving an unfinished tool cycle.
         self.messages.append({
