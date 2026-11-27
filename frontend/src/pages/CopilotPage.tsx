@@ -1,12 +1,35 @@
-﻿import ReactMarkdown from 'react-markdown'
+﻿
+import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import ReactECharts from 'echarts-for-react'
 import { useState, useEffect } from 'react'
 import { BrainCircuit, RotateCcw, Send, Sparkles, User } from 'lucide-react'
 import './CopilotPage.css'
 
+type ChartData = {
+  chart_type: 'bar' | 'line' | 'pie'
+  title: string
+  x_key: string
+  series: {
+    data_key: string
+    label: string
+  }[]
+  data: {
+    category: string
+    value: number
+  }[]
+  metadata?: {
+    metric?: string
+    group_by?: string
+    filters?: Record<string, unknown>
+    record_count?: number
+  }
+}
+
 type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
+  charts?: ChartData[]
 }
 
 type SessionResponse = {
@@ -17,6 +40,7 @@ type SessionResponse = {
 type AskResponse = {
   session_id: string
   answer: string
+  charts?: ChartData[]
   expires_in_seconds: number
 }
 
@@ -83,7 +107,10 @@ function CopilotPage() {
     setLoading(true)
     setError('')
     setQuestion('')
-    setMessages(current => [...current, { role: 'user', content: trimmed }])
+    setMessages(current => [
+      ...current,
+      { role: 'user', content: trimmed },
+    ])
 
     try {
       const activeSession = sessionId || await createSession()
@@ -103,7 +130,11 @@ function CopilotPage() {
 
       setMessages(current => [
         ...current,
-        { role: 'assistant', content: result.answer },
+        {
+          role: 'assistant',
+          content: result.answer,
+          charts: result.charts ?? [],
+        },
       ])
     } catch (err) {
       setError(
@@ -141,6 +172,82 @@ function CopilotPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function renderChart(chart: ChartData, chartIndex: number) {
+    const option = chart.chart_type === 'pie'
+      ? {
+          title: {
+            text: chart.title,
+            left: 'center',
+          },
+          tooltip: {
+            trigger: 'item' as const,
+          },
+          legend: {
+            bottom: 0,
+          },
+          series: [
+            {
+              name: chart.series[0]?.label ?? 'Value',
+              type: 'pie' as const,
+              radius: '60%',
+              data: chart.data.map(item => ({
+                name: item.category,
+                value: item.value,
+              })),
+            },
+          ],
+        }
+      : {
+          title: {
+            text: chart.title,
+            left: 'center',
+          },
+          tooltip: {
+            trigger: 'axis' as const,
+          },
+          grid: {
+            left: 55,
+            right: 25,
+            top: 65,
+            bottom: 75,
+          },
+          xAxis: {
+            type: 'category' as const,
+            data: chart.data.map(item => item.category),
+            axisLabel: {
+              rotate: chart.data.length > 8 ? 35 : 0,
+            },
+          },
+          yAxis: {
+            type: 'value' as const,
+          },
+          series: [
+            {
+              name: chart.series[0]?.label ?? 'Value',
+              type: chart.chart_type,
+              data: chart.data.map(item => item.value),
+              smooth: chart.chart_type === 'line',
+            },
+          ],
+        }
+
+    return (
+      <div className="copilot-chart" key={chartIndex}>
+        <ReactECharts
+          option={option}
+          style={{
+            height: 360,
+            width: '100%',
+          }}
+          opts={{
+            renderer: 'canvas',
+          }}
+          notMerge
+        />
+      </div>
+    )
   }
 
   const suggestions = [
@@ -225,15 +332,22 @@ function CopilotPage() {
                 <span>
                   {message.role === 'user' ? 'YOU' : 'MOVEIQ COPILOT'}
                 </span>
+
                 {message.role === 'user' ? (
                   <p>{message.content}</p>
                 ) : (
-                  <div className="copilot-markdown">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {message.content}
-                  </ReactMarkdown>
-                </div>
-              )}
+                  <>
+                    <div className="copilot-markdown">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+
+                    {message.charts?.map((chart, chartIndex) =>
+                      renderChart(chart, chartIndex)
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ))}
