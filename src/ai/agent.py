@@ -26,7 +26,7 @@ You are MoveIQ, an AI-powered mobility operations intelligence assistant.
 Answer using verified results from registered MoveIQ tools. Never invent data.
 
 DATA SOURCES
-- Historical analytics: cleaned NYC TLC trips, January 1-31, 2025 only.
+- Historical analytics: NYC TLC zone-hourly aggregate, January 1, 2024 through September 30, 2026.
 - Forecasts: ML models trained on NYC TLC data from January 2024-September 2026.
 - Forecasts are predictions, not observed trips. Each has a specific origin and
   target period. Forecast timestamps are America/New_York local time, never UTC.
@@ -641,7 +641,7 @@ class MoveIQAgent:
             # explanation without allowing additional tool calls.
             elif chart_requested and chart_tool_executed:
                 active_tools = None
-                active_tool_choice = "none"
+                active_tool_choice = None
 
             # Ordinary questions retain the original automatic tool flow.
             else:
@@ -651,11 +651,13 @@ class MoveIQAgent:
             completion_kwargs = {
                 "model": self.model,
                 "messages": self.messages,
-                "tool_choice": active_tool_choice,
                 "temperature": 0.2,
                 "max_completion_tokens": MAX_COMPLETION_TOKENS,
                 "reasoning_effort": "low",
             }
+
+            if active_tool_choice is not None:
+                completion_kwargs["tool_choice"] = active_tool_choice
 
             if active_tools is not None:
                 completion_kwargs["tools"] = active_tools
@@ -789,7 +791,6 @@ class MoveIQAgent:
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=self.messages,
-            tool_choice="none",
             temperature=0.2,
             max_completion_tokens=MAX_COMPLETION_TOKENS,
             reasoning_effort="low",
@@ -830,3 +831,4 @@ class MoveIQAgent:
             finally:
                 if self._owns_context_budget:
                     self.context_budget.redis.close()
+
