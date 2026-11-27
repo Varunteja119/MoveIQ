@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.analytics.engine import MoveIQAnalytics
+from src.analytics.copilot_engine import HistoricalCopilotAnalytics
 from src.analytics.chart_service import MoveIQChartService
 from src.ml.extended_forecast_service import ExtendedForecastService
 
@@ -17,21 +17,19 @@ class MoveIQToolbox:
     """
 
     def __init__(self, analytics=None, forecast=None):
-        self.analytics = analytics or MoveIQAnalytics()
+        self.analytics = analytics or HistoricalCopilotAnalytics()
         self.forecast = forecast or ExtendedForecastService()
         self.chart_service = MoveIQChartService(self.analytics)
 
         self._overview = self.analytics.get_overview()
-
         row = self._overview.iloc[0]
 
         self.analytics_metadata = {
-            "source": "NYC TLC cleaned trip dataset",
+            "source": "NYC TLC historical zone-hourly aggregate",
             "start_date": str(row["first_pickup"]),
             "end_date": str(row["last_pickup"]),
             "total_trips": int(row["total_trips"]),
         }
-
     @staticmethod
     def _normalize(value):
         """Convert Pandas and NumPy values into JSON-safe values."""
