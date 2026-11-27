@@ -1,6 +1,7 @@
 ﻿
 import json
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -457,7 +458,12 @@ class MoveIQAgent:
                 "GROQ_API_KEY not found. Check the project .env file."
             )
 
-        self.client = Groq(api_key=api_key, timeout=30.0, max_retries=0)
+        self.client = Groq(
+            api_key=api_key,
+            timeout=30.0,
+            max_retries=0,
+        )
+
         self.model = model
         self._owns_toolbox = toolbox is None
         self.toolbox = toolbox if toolbox is not None else MoveIQToolbox()
@@ -471,6 +477,7 @@ class MoveIQAgent:
         )
 
         self.tool_lock = tool_lock
+
         self.messages = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
@@ -489,6 +496,11 @@ class MoveIQAgent:
             "generate_chart": self.toolbox.generate_chart,
         }
 
+        self._chart_tool = next(
+            tool for tool in TOOLS
+            if tool["function"]["name"] == "generate_chart"
+        )
+
     def spawn(self):
         """Create an independent agent sharing the loaded services."""
         return MoveIQAgent(
@@ -498,6 +510,14 @@ class MoveIQAgent:
             context_budget=self.context_budget,
             tool_lock=self.tool_lock,
         )
+
+    @staticmethod
+    def _is_chart_request(question):
+        """Detect explicit chart, graph, plot or visualization requests."""
+        pattern = (
+            r"\b(chart|graph|plot|visuali[sz]e|visuali[sz]ation)\b"
+        )
+        return bool(re.search(pattern, question, flags=re.IGNORECASE))
 
     def _execute_tool(self, name, arguments):
         from contextlib import nullcontext
@@ -522,12 +542,14 @@ class MoveIQAgent:
             with lock_context:
                 result = handler(**arguments)
 
-            return json.loads(json.dumps(result, allow_nan=False))
+            return json.loads(
+                json.dumps(result, allow_nan=False)
+            )
 
         except Exception as exc:
             return {
                 "error": str(exc),
-                "tool": name
+                "tool": name,
             }
 
     def _validate_final_answer(self, answer, tool_results=None):
@@ -539,7 +561,6 @@ class MoveIQAgent:
             tool_results or [],
         )
 
-        # Numerical validation remains active but does not block responses.
         if not numeric_result["passed"]:
             print(
                 "[MoveIQ Numeric Audit] Unsupported numbers:",
@@ -559,31 +580,40 @@ class MoveIQAgent:
     @staticmethod
     def _extract_charts(tool_results):
         """Return successful structured chart results from this turn."""
-        return [
-            result["data"]
-            for result in tool_results
+        charts = []
+
+        for result in tool_results:
             if (
                 result.get("tool") == "generate_chart"
                 and not result.get("error")
                 and isinstance(result.get("data"), dict)
-                and isinstance(result["data"].get("data"), list)
-            )
-        ]
+            ):
+                charts.append(result["data"])
+
+        return charts
+
+    def _build_response(self, answer, tool_results):
+        """Build the API response with chart data from this turn."""
+        return {
+            "answer": answer,
+            "charts": self._extract_charts(tool_results),
+        }
 
     def ask(self, question):
         if not isinstance(question, str) or not question.strip():
             raise ValueError("Question cannot be empty.")
 
+        question = question.strip()
+
         self.messages.append({
             "role": "user",
-            "content": question.strip()
+            "content": question,
         })
 
-        # Evidence is scoped to this ask() call only.
         turn_tool_results = []
 
-        # Trim old conversation before each new request. Never split a
-        # user turn from its tool-call and tool-result messages.
+        chart_requested = self._is_chart_request(question)
+        chart_tool_executed = False
 
         for round_number in range(self.max_tool_rounds):
 
@@ -591,24 +621,50 @@ class MoveIQAgent:
                 self.messages,
                 tools=TOOLS,
             )
+
             estimated = self.context_budget.estimate_tokens(
                 self.messages,
                 TOOLS,
             )
+
             self.context_budget.reserve(
                 estimated,
                 MAX_COMPLETION_TOKENS,
             )
 
+            # Explicit chart requests must use the chart tool.
+            if chart_requested and not chart_tool_executed:
+                active_tools = [self._chart_tool]
+                active_tool_choice = "required"
+
+            # Once the chart tool has executed, ask the model for its
+            # explanation without allowing additional tool calls.
+            elif chart_requested and chart_tool_executed:
+                active_tools = None
+                active_tool_choice = "none"
+
+            # Ordinary questions retain the original automatic tool flow.
+            else:
+                active_tools = TOOLS
+                active_tool_choice = "auto"
+
+            completion_kwargs = {
+                "model": self.model,
+                "messages": self.messages,
+                "tool_choice": active_tool_choice,
+                "temperature": 0.2,
+                "max_completion_tokens": MAX_COMPLETION_TOKENS,
+                "reasoning_effort": "low",
+            }
+
+            if active_tools is not None:
+                completion_kwargs["tools"] = active_tools
+
+            if active_tools is not None:
+                completion_kwargs["parallel_tool_calls"] = False
+
             completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=self.messages,
-                tools=TOOLS,
-                tool_choice="auto",
-                parallel_tool_calls=False,
-                temperature=0.2,
-                max_completion_tokens=MAX_COMPLETION_TOKENS,
-                reasoning_effort="low"
+                **completion_kwargs
             )
 
             message = completion.choices[0].message
@@ -620,18 +676,18 @@ class MoveIQAgent:
 
                 answer = self._validate_final_answer(
                     answer,
-                    turn_tool_results
+                    turn_tool_results,
                 )
 
                 self.messages.append({
                     "role": "assistant",
-                    "content": answer
+                    "content": answer,
                 })
 
-                return {
-                    "answer": answer,
-                    "charts": self._extract_charts(turn_tool_results),
-                }
+                return self._build_response(
+                    answer,
+                    turn_tool_results,
+                )
 
             # Preserve the assistant's tool-call message in conversation history.
             self.messages.append(
@@ -639,38 +695,46 @@ class MoveIQAgent:
             )
 
             for tool_index, tool_call in enumerate(message.tool_calls):
+
                 tool_name = tool_call.function.name
 
                 if tool_index >= MAX_TOOL_CALLS_PER_ROUND:
                     result = {
-                        "error": "Per-round tool-call limit reached. "
-                                 "Please narrow the request.",
+                        "error": (
+                            "Per-round tool-call limit reached. "
+                            "Please narrow the request."
+                        ),
                         "tool": tool_name,
                     }
+
                     self.messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "content": json.dumps(result),
                     })
+
                     continue
 
                 try:
                     arguments = json.loads(
                         tool_call.function.arguments or "{}"
                     )
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, TypeError):
                     arguments = None
 
                 if arguments is None:
                     result = {
                         "error": "The model supplied invalid JSON arguments.",
-                        "tool": tool_name
+                        "tool": tool_name,
                     }
                 else:
                     result = self._execute_tool(
                         tool_name,
-                        arguments
+                        arguments,
                     )
+
+                if tool_name == "generate_chart":
+                    chart_tool_executed = True
 
                 # Only successful MoveIQ result envelopes are evidence.
                 if (
@@ -690,9 +754,12 @@ class MoveIQAgent:
                     "content": json.dumps(
                         result,
                         ensure_ascii=False,
-                        allow_nan=False
-                    )
+                        allow_nan=False,
+                    ),
                 })
+
+            # For chart requests, the next round is reserved for the
+            # final explanation. Do not allow another chart/tool call.
 
         # Avoid silently leaving an unfinished tool cycle.
         self.messages.append({
@@ -701,17 +768,19 @@ class MoveIQAgent:
                 "Tool execution limit reached. Provide the best answer "
                 "using only the results already received. Do not request "
                 "additional tools."
-            )
+            ),
         })
 
         self.messages = self.context_budget.trim_to_budget(
             self.messages,
             tools=TOOLS,
         )
+
         estimated = self.context_budget.estimate_tokens(
             self.messages,
             TOOLS,
         )
+
         self.context_budget.reserve(
             estimated,
             MAX_COMPLETION_TOKENS,
@@ -723,7 +792,7 @@ class MoveIQAgent:
             tool_choice="none",
             temperature=0.2,
             max_completion_tokens=MAX_COMPLETION_TOKENS,
-            reasoning_effort="low"
+            reasoning_effort="low",
         )
 
         answer = (
@@ -733,18 +802,18 @@ class MoveIQAgent:
 
         answer = self._validate_final_answer(
             answer,
-            turn_tool_results
+            turn_tool_results,
         )
 
         self.messages.append({
             "role": "assistant",
-            "content": answer
+            "content": answer,
         })
 
-        return {
-            "answer": answer,
-            "charts": self._extract_charts(turn_tool_results),
-        }
+        return self._build_response(
+            answer,
+            turn_tool_results,
+        )
 
     def reset(self):
         self.messages = [
