@@ -735,8 +735,20 @@ class MoveIQAgent:
                         arguments,
                     )
 
+                chart_succeeded = (
+                    tool_name == "generate_chart"
+                    and isinstance(result, dict)
+                    and not result.get("error")
+                    and all(
+                        key in result
+                        for key in ("tool", "source", "coverage", "data")
+                    )
+                    and result.get("tool") == "generate_chart"
+                    and isinstance(result.get("data"), dict)
+                )
+
                 if tool_name == "generate_chart":
-                    chart_tool_executed = True
+                    chart_tool_executed = chart_succeeded
 
                 # Only successful MoveIQ result envelopes are evidence.
                 if (
@@ -759,6 +771,19 @@ class MoveIQAgent:
                         allow_nan=False,
                     ),
                 })
+
+                if tool_name == "generate_chart" and not chart_succeeded:
+                    detail = (
+                        result.get("error", "Invalid chart result.")
+                        if isinstance(result, dict)
+                        else "The chart tool returned an invalid response."
+                    )
+                    answer = f"Chart generation failed: {detail}"
+                    self.messages.append({
+                        "role": "assistant",
+                        "content": answer,
+                    })
+                    return self._build_response(answer, turn_tool_results)
 
             # Return chart results directly. Do not make another Groq
             # request after the chart tool has executed.
