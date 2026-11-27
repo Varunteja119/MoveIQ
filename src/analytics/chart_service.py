@@ -1,4 +1,5 @@
-﻿from datetime import date
+﻿
+from datetime import date
 
 import pandas as pd
 
@@ -59,9 +60,7 @@ class MoveIQChartService:
             )
 
         if chart_type not in self.CHART_TYPES:
-            raise ValueError(
-                f"Unsupported chart type: {chart_type}"
-            )
+            raise ValueError(f"Unsupported chart type: {chart_type}")
 
         if chart_type == "line" and group_by not in {"hour", "weekday"}:
             raise ValueError(
@@ -132,7 +131,6 @@ class MoveIQChartService:
             )
             value_column = metric
 
-        # Combine duplicate categories, including missing borough labels.
         totals = {}
 
         for _, row in result.iterrows():
@@ -161,7 +159,9 @@ class MoveIQChartService:
                         "weight": 0,
                     }
 
-                totals[category]["weighted_total"] += float(value) * int(weight)
+                totals[category]["weighted_total"] += (
+                    float(value) * int(weight)
+                )
                 totals[category]["weight"] += int(weight)
 
             else:
@@ -183,7 +183,6 @@ class MoveIQChartService:
                 "value": value,
             })
 
-        # Time-based charts must follow chronological order.
         if group_by == "hour":
             data.sort(key=lambda item: item["category"])
 
@@ -195,8 +194,14 @@ class MoveIQChartService:
             )
 
         if not data:
+            coverage = self.analytics.get_overview().iloc[0].to_dict()
+
             raise ValueError(
-                "No data available for the requested chart."
+                "No chart data found. "
+                f"Requested metric: {metric}. "
+                f"Grouping: {group_by}. "
+                f"Filters: {filters}. "
+                f"Dataset coverage: {coverage}"
             )
 
         return {
