@@ -1,4 +1,5 @@
-﻿import json
+﻿
+import json
 import os
 from pathlib import Path
 
@@ -78,7 +79,11 @@ RESPONSE RULES
 - Separate facts, interpretations and recommendations.
 - Label predictions clearly and never describe correlation as proven cause.
 - Do not claim model accuracy without relevant evaluation evidence.
-- Do not claim a chart was rendered; describe returned chart data instead.
+- When the user explicitly requests a chart, call generate_chart.
+- Do not merely describe chart data in text.
+- The application renders charts from structured chart tool results.
+- Briefly explain the chart and its key findings in the final response.
+- Never claim a chart was rendered unless chart data was successfully returned.
 - If a request is ambiguous, ask one concise clarification.
 - If data cannot establish a conclusion, explain what is available, what is
   missing and why the conclusion cannot be supported.
@@ -334,7 +339,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_chart",
-            "description": "Generate structured chart data for historical analytics. Supported chart types are bar, line, and pie.",
+            "description": (
+                "Generate structured chart data for historical analytics. "
+                "Use only when the user explicitly requests a chart. "
+                "Supported chart types are bar, line, and pie."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -364,24 +373,30 @@ TOOLS = [
                                 "type": "string",
                                 "enum": ["bar", "line", "pie"]
                             },
-                            "start_date": {"type": "string"},
-                            "end_date": {"type": "string"},
-                            "weekdays": {
-                                "type": "array",
-                                "items": {"type": "integer"}
-                            },
-                            "hours": {
-                                "type": "array",
-                                "items": {"type": "integer"}
-                            },
-                            "borough": {"type": "string"},
-                            "pickup_zone_ids": {
-                                "type": "array",
-                                "items": {"type": "integer"}
-                            },
-                            "dropoff_zone_ids": {
-                                "type": "array",
-                                "items": {"type": "integer"}
+                            "filters": {
+                                "type": "object",
+                                "properties": {
+                                    "start_date": {"type": "string"},
+                                    "end_date": {"type": "string"},
+                                    "weekdays": {
+                                        "type": "array",
+                                        "items": {"type": "integer"}
+                                    },
+                                    "hours": {
+                                        "type": "array",
+                                        "items": {"type": "integer"}
+                                    },
+                                    "borough": {"type": "string"},
+                                    "pickup_zone_ids": {
+                                        "type": "array",
+                                        "items": {"type": "integer"}
+                                    },
+                                    "dropoff_zone_ids": {
+                                        "type": "array",
+                                        "items": {"type": "integer"}
+                                    }
+                                },
+                                "additionalProperties": False
                             }
                         },
                         "required": ["metric", "group_by", "chart_type"],
@@ -392,8 +407,7 @@ TOOLS = [
                 "additionalProperties": False
             }
         }
-    }
-,
+    },
     {
         "type": "function",
         "function": {
@@ -542,6 +556,20 @@ class MoveIQAgent:
 
         return safe_fallback(operational_result["violations"])
 
+    @staticmethod
+    def _extract_charts(tool_results):
+        """Return successful structured chart results from this turn."""
+        return [
+            result["data"]
+            for result in tool_results
+            if (
+                result.get("tool") == "generate_chart"
+                and not result.get("error")
+                and isinstance(result.get("data"), dict)
+                and isinstance(result["data"].get("data"), list)
+            )
+        ]
+
     def ask(self, question):
         if not isinstance(question, str) or not question.strip():
             raise ValueError("Question cannot be empty.")
@@ -579,7 +607,8 @@ class MoveIQAgent:
                 tool_choice="auto",
                 parallel_tool_calls=False,
                 temperature=0.2,
-                max_completion_tokens=MAX_COMPLETION_TOKENS, reasoning_effort="low"
+                max_completion_tokens=MAX_COMPLETION_TOKENS,
+                reasoning_effort="low"
             )
 
             message = completion.choices[0].message
@@ -589,14 +618,20 @@ class MoveIQAgent:
                     "I couldn't generate a response for that request."
                 )
 
-                answer = self._validate_final_answer(answer, turn_tool_results)
+                answer = self._validate_final_answer(
+                    answer,
+                    turn_tool_results
+                )
 
                 self.messages.append({
                     "role": "assistant",
                     "content": answer
                 })
 
-                return answer
+                return {
+                    "answer": answer,
+                    "charts": self._extract_charts(turn_tool_results),
+                }
 
             # Preserve the assistant's tool-call message in conversation history.
             self.messages.append(
@@ -636,7 +671,6 @@ class MoveIQAgent:
                         tool_name,
                         arguments
                     )
-
 
                 # Only successful MoveIQ result envelopes are evidence.
                 if (
@@ -688,7 +722,8 @@ class MoveIQAgent:
             messages=self.messages,
             tool_choice="none",
             temperature=0.2,
-            max_completion_tokens=MAX_COMPLETION_TOKENS, reasoning_effort="low"
+            max_completion_tokens=MAX_COMPLETION_TOKENS,
+            reasoning_effort="low"
         )
 
         answer = (
@@ -696,14 +731,20 @@ class MoveIQAgent:
             or "The request exceeded the tool execution limit."
         )
 
-        answer = self._validate_final_answer(answer, turn_tool_results)
+        answer = self._validate_final_answer(
+            answer,
+            turn_tool_results
+        )
 
         self.messages.append({
             "role": "assistant",
             "content": answer
         })
 
-        return answer
+        return {
+            "answer": answer,
+            "charts": self._extract_charts(turn_tool_results),
+        }
 
     def reset(self):
         self.messages = [
@@ -720,8 +761,3 @@ class MoveIQAgent:
             finally:
                 if self._owns_context_budget:
                     self.context_budget.redis.close()
-
-
-
-
-

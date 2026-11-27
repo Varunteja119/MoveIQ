@@ -1,3 +1,4 @@
+
 """MoveIQ FastAPI application with isolated Redis-backed Copilot sessions."""
 
 import json
@@ -55,10 +56,12 @@ class HistoricalComparisonRequest(BaseModel):
 
 
 def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics):
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         agent = agent_factory()
         historical = historical_factory()
+
         app.state.agent = agent
         app.state.historical_analytics = historical
         app.state.historical_lock = RLock()
@@ -100,7 +103,6 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
 
     def get_session_key(session_id: str):
         try:
-            # Validate UUID format before constructing the Redis key.
             normalized_id = str(uuid.UUID(session_id))
         except (ValueError, TypeError, AttributeError) as exc:
             raise HTTPException(
@@ -146,6 +148,7 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
                     "Check the API server logs."
                 ),
             ) from exc
+
     def get_historical():
         service = getattr(app.state, "historical_analytics", None)
 
@@ -166,7 +169,10 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
         except HTTPException:
             raise
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
         except Exception as exc:
             raise HTTPException(
                 status_code=500,
@@ -329,12 +335,12 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
 
     @app.post("/api/v1/copilot/sessions", tags=["Copilot"])
     def create_session():
+
         def create(agent):
             redis = get_redis(agent)
             session_id = str(uuid.uuid4())
             session_key = get_session_key(session_id)
 
-            # Start with the agent's normal system prompt.
             agent.reset()
 
             redis.setex(
@@ -350,6 +356,7 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
             }
 
         agent = get_agent()
+
         try:
             with app.state.service_lock:
                 return create(agent)
@@ -450,7 +457,9 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
                     or not history
                     or history[0].get("role") != "system"
                 ):
-                    raise ValueError("Stored conversation history is invalid.")
+                    raise ValueError(
+                        "Stored conversation history is invalid."
+                    )
 
                 spawn = getattr(base_agent, "spawn", None)
 
@@ -463,7 +472,9 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
 
                 try:
                     request_agent.messages = history
-                    answer = request_agent.ask(request.question)
+
+                    # ask() now returns structured answer and chart data.
+                    result = request_agent.ask(request.question)
 
                     redis.setex(
                         session_key,
@@ -477,7 +488,8 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
 
                     return {
                         "session_id": request.session_id,
-                        "answer": answer,
+                        "answer": result["answer"],
+                        "charts": result["charts"],
                         "expires_in_seconds": SESSION_TTL_SECONDS,
                     }
 
@@ -507,23 +519,34 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
     # HISTORICAL ANALYTICS
     # ---------------------------------------------------------
 
-    @app.get("/api/v1/historical/overview", tags=["Historical Analytics"])
+    @app.get(
+        "/api/v1/historical/overview",
+        tags=["Historical Analytics"],
+    )
     def historical_overview():
         return run_historical_service(
             lambda service: service.get_overview()
         )
 
-
-    @app.get("/api/v1/historical/patterns", tags=["Historical Analytics"])
+    @app.get(
+        "/api/v1/historical/patterns",
+        tags=["Historical Analytics"],
+    )
     def historical_patterns():
         return run_historical_service(
             lambda service: service.get_patterns_summary()
         )
 
-    @app.get("/api/v1/historical/zones/{location_id}", tags=["Historical Analytics"])
+    @app.get(
+        "/api/v1/historical/zones/{location_id}",
+        tags=["Historical Analytics"],
+    )
     def historical_zone_profile(
         location_id: int,
-        location_role: str = Query(default="pickup", pattern="^(pickup|dropoff)$"),
+        location_role: str = Query(
+            default="pickup",
+            pattern="^(pickup|dropoff)$",
+        ),
         start_date: date | None = None,
         end_date: date | None = None,
     ):
@@ -536,10 +559,16 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
             )
         )
 
-    @app.get("/api/v1/historical/zones/{location_id}/hourly", tags=["Historical Analytics"])
+    @app.get(
+        "/api/v1/historical/zones/{location_id}/hourly",
+        tags=["Historical Analytics"],
+    )
     def historical_zone_hourly(
         location_id: int,
-        location_role: str = Query(default="pickup", pattern="^(pickup|dropoff)$"),
+        location_role: str = Query(
+            default="pickup",
+            pattern="^(pickup|dropoff)$",
+        ),
         start_date: date | None = None,
         end_date: date | None = None,
     ):
@@ -551,6 +580,7 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
                 end_date=end_date.isoformat() if end_date else None,
             )
         )
+
         for record in records:
             for key, value in record.items():
                 if isinstance(value, Real) and not math.isfinite(value):
@@ -563,19 +593,37 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
             "records": records,
         }
 
-    @app.post("/api/v1/historical/compare", tags=["Historical Analytics"])
+    @app.post(
+        "/api/v1/historical/compare",
+        tags=["Historical Analytics"],
+    )
     def historical_compare(request: HistoricalComparisonRequest):
         if request.segment_a_start > request.segment_a_end:
-            raise HTTPException(400, "Segment A start must not be after its end.")
+            raise HTTPException(
+                400,
+                "Segment A start must not be after its end.",
+            )
+
         if request.segment_b_start > request.segment_b_end:
-            raise HTTPException(400, "Segment B start must not be after its end.")
+            raise HTTPException(
+                400,
+                "Segment B start must not be after its end.",
+            )
+
         if request.location_role not in {"pickup", "dropoff"}:
-            raise HTTPException(400, "location_role must be pickup or dropoff.")
+            raise HTTPException(
+                400,
+                "location_role must be pickup or dropoff.",
+            )
+
         if not (
             request.segment_a_end < request.segment_b_start
             or request.segment_b_end < request.segment_a_start
         ):
-            raise HTTPException(400, "Comparison date ranges must not overlap.")
+            raise HTTPException(
+                400,
+                "Comparison date ranges must not overlap.",
+            )
 
         return run_historical_service(
             lambda service: service.compare_periods(
