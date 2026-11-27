@@ -1,6 +1,6 @@
 
 """MoveIQ FastAPI application with isolated Redis-backed Copilot sessions."""
-
+import logging
 import json
 import math
 import uuid
@@ -507,6 +507,7 @@ def create_app(agent_factory=MoveIQAgent, historical_factory=HistoricalAnalytics
                     detail=str(exc),
                 ) from exc
             except Exception as exc:
+	       logging.exception("COPILOT ASK FAILED")
                 raise HTTPException(
                     status_code=500,
                     detail=(
